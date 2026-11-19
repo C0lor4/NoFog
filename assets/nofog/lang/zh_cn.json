@@ -1,0 +1,8 @@
+{
+  "key.nofog.toggle": "开关除雾",
+  "nofog.setting.active": "启用除雾",
+  "nofog.setting.active.tooltip": "开关勾选的除雾效果。",
+  "nofog.setting.water": "移除水下雾气",
+  "nofog.setting.lava": "移除岩浆雾气",
+  "nofog.setting.powder_snow": "移除粉雪雾气"
+}

@@ -1,0 +1,8 @@
+{
+  "key.nofog.toggle": "Toggle fog removal",
+  "nofog.setting.active": "Enable fog removal",
+  "nofog.setting.active.tooltip": "Toggle all selected fog effects.",
+  "nofog.setting.water": "Remove underwater fog",
+  "nofog.setting.lava": "Remove lava fog",
+  "nofog.setting.powder_snow": "Remove powder snow fog"
+}

@@ -1,0 +1,152 @@
+;; Wire ABI from Horizon 6d765e0's wire_guest_generated.rs. This module
+;; shares linear memory with the runtime; pointers must be relative to $base
+;; or supplied by the runtime allocator. The dynamic linker reserves 2048
+;; bytes (alignment 16) for static data and the frame descriptors.
+(module
+  (@custom "dylink.0" "\01\05\80\10\04\00\00")
+  (import "env" "memory" (memory 0))
+  (import "env" "__memory_base" (global $base i32))
+  (import "env" "_RNvCs5fGHjzWXRav_7___rustc12___rust_alloc"
+    (func $alloc (param i32 i32) (result i32)))
+  (import "env" "_RNvCs5fGHjzWXRav_7___rustc14___rust_dealloc"
+    (func $free (param i32 i32 i32)))
+  (import "horizon" "host" (func $host (param i32 i32 i32 i32 i32) (result i32)))
+  (data (global.get $base) "{{payload}}")
+  {{accessors}}
+
+  (func (export "horizon_layout") (result i64) i64.const 0xa51c4e0bff942bbe)
+  (global $depth (mut i32) (i32.const 0))
+  (global $active (mut i32) (i32.const 1))
+  (global $water (mut i32) (i32.const 1))
+  (global $lava (mut i32) (i32.const 1))
+  (global $snow (mut i32) (i32.const 1))
+  (global $known (mut i32) (i32.const 0))
+
+  ;; Each of 32 nested calls retains its own allocation for the input/return
+  ;; and a small inline host-reply buffer. Keeping input until the next call
+  ;; at the same depth also keeps returned pointers alive.
+  (func $frame (param $level i32) (result i32)
+    (if (i32.ge_u (local.get $level) (i32.const 32)) (then unreachable))
+    (i32.add (i32.add (global.get $base) (i32.const 1024))
+      (i32.mul (local.get $level) (i32.const 32))))
+  (func (export "horizon_in") (param $len i32) (result i32)
+    (local $f i32) (local $new i32)
+    (local.set $f (call $frame (global.get $depth)))
+    (if (i32.gt_u (local.get $len) (i32.load offset=4 (local.get $f)))
+      (then
+        (local.set $new (call $alloc (local.get $len) (i32.const 8)))
+        (if (i32.eqz (local.get $new)) (then unreachable))
+        (if (i32.load (local.get $f))
+          (then (call $free (i32.load (local.get $f))
+                  (i32.load offset=4 (local.get $f)) (i32.const 8))))
+        (i32.store (local.get $f) (local.get $new))
+        (i32.store offset=4 (local.get $f) (local.get $len))))
+    (i32.store offset=8 (local.get $f) (local.get $len))
+    (i32.load (local.get $f)))
+
+  (func $pack (param $ptr i32) (param $len i32) (result i64)
+    (i64.or (i64.shl (i64.extend_i32_u (local.get $ptr)) (i64.const 32))
+      (i64.extend_i32_u (local.get $len))))
+  (func $reply (result i32)
+    (i32.add (call $frame (i32.sub (global.get $depth) (i32.const 1))) (i32.const 12)))
+  (func $request (param $id i32) (param $ptr i32) (param $len i32) (result i32)
+    (local $count i32)
+    (local.set $count (call $host (local.get $id) (local.get $ptr) (local.get $len)
+      (call $reply) (i32.const 20)))
+    ;; The host methods below return small scalars, unit or Result<(), _>.
+    (if (i32.gt_u (local.get $count) (i32.const 20)) (then unreachable))
+    (local.get $count))
+  (func $boolean (param $id i32) (param $ptr i32) (param $len i32) (result i32)
+    (if (i32.ne (call $request (local.get $id) (local.get $ptr) (local.get $len))
+          (i32.const 1)) (then unreachable))
+    (i32.load8_u (call $reply)))
+  (func $setting (param $ptr i32) (param $len i32) (result i32)
+    (local $n i32)
+    (local.set $n (call $request (i32.const 195) (local.get $ptr) (local.get $len)))
+    (if (i32.and (i32.eq (local.get $n) (i32.const 2))
+          (i32.eq (i32.load8_u (call $reply)) (i32.const 1)))
+      (then (return (i32.load8_u offset=1 (call $reply)))))
+    (if (i32.and (i32.eq (local.get $n) (i32.const 1))
+          (i32.eqz (i32.load8_u (call $reply)))) (then (return (i32.const 1))))
+    unreachable)
+  (func $refresh
+    call $active call $setting global.set $active
+    call $water call $setting global.set $water
+    call $lava call $setting global.set $lava
+    call $powder_snow call $setting global.set $snow
+    i32.const 1 global.set $known)
+  (func $is_enabled (result i32)
+    i32.const 15 call $owner call $boolean)
+  (func $declare (param $ptr i32) (param $len i32)
+    (local $n i32)
+    (local.set $n (call $request (i32.const 1229) (local.get $ptr) (local.get $len)))
+    ;; Rust Wire<Result<(), SettingError>> encodes success as a one-byte tag.
+    (if (i32.or (i32.ne (local.get $n) (i32.const 1))
+          (i32.ne (i32.load8_u (call $reply)) (i32.const 0))) (then unreachable)))
+  (func $register
+    i32.const 1218 call $register_key call $request drop
+    call $register_active call $declare
+    call $register_water call $declare
+    call $register_lava call $declare
+    call $register_powder_snow call $declare)
+
+  ;; Horizon has updated the mod's key mapping before input_key and
+  ;; mouse_button_post. Consume this event's click, including OS repeats,
+  ;; but toggle only on a real press, so rebinding works for keys and mice.
+  (func $input (param $press i32)
+    i32.const 144 call $binding call $boolean
+    local.get $press i32.and
+    if
+      (if (i32.and (call $is_enabled) (call $boolean (i32.const 145) (i32.const 0) (i32.const 0)))
+        (then
+          i32.const 17
+          call $active call $setting
+          if (result i32 i32) call $off else call $on end
+          call $request drop
+          call $refresh))
+    end)
+
+  (func $dispatch (param $id i32) (param $ptr i32) (param $len i32) (result i64)
+    (local $type i32) (local $clear i32)
+    ;; A module subscription is Vec<(String, i32 priority, bool)>.
+    (if (i32.eqz (local.get $id)) (then call $listeners call $pack return))
+    (if (i32.eq (local.get $id) (i32.const 1)) (then call $register (return (i64.const 0))))
+    ;; INIT supplies the package list; RELEASE has no resources to drop here.
+    (if (i32.or (i32.eq (local.get $id) (i32.const 0xffffff00))
+          (i32.eq (local.get $id) (i32.const 0xffffff01))) (then (return (i64.const 0))))
+    (if (i32.eq (local.get $id) (i32.const 18)) (then call $refresh (return (i64.const 0))))
+    (if (i32.eq (local.get $id) (i32.const 360))
+      (then (if (i32.eqz (global.get $known)) (then call $refresh)) (return (i64.const 0))))
+    (if (i32.eq (local.get $id) (i32.const 90))
+      (then
+        (if (i32.lt_u (local.get $len) (i32.const 17)) (then unreachable))
+        ;; The final fields are raw_code (u32), action (u32) and modifiers (u32).
+        (local.set $ptr (i32.sub (i32.add (local.get $ptr) (local.get $len)) (i32.const 12)))
+        (call $input (i32.eq (i32.load offset=4 (local.get $ptr)) (i32.const 1)))
+        (return (call $pack (local.get $ptr) (i32.const 12)))))
+    (if (i32.eq (local.get $id) (i32.const 81))
+      (then
+        (if (i32.ne (local.get $len) (i32.const 9)) (then unreachable))
+        (call $input (i32.load8_u offset=4 (local.get $ptr)))
+        (return (call $pack (local.get $ptr) (local.get $len)))))
+    (if (i32.eq (local.get $id) (i32.const 330))
+      (then
+        (if (i32.ne (local.get $len) (i32.const 28)) (then unreachable))
+        (local.set $type (i32.load offset=24 (local.get $ptr)))
+        (if (i32.eqz (global.get $known)) (then call $refresh))
+        (local.set $clear (i32.or
+          (i32.and (i32.eq (local.get $type) (i32.const 1)) (global.get $water))
+          (i32.or (i32.and (i32.eq (local.get $type) (i32.const 2)) (global.get $lava))
+            (i32.and (i32.eq (local.get $type) (i32.const 3)) (global.get $snow)))))
+        (if (i32.and (global.get $active) (local.get $clear))
+          (then (if (call $is_enabled) (then (i32.store offset=24 (local.get $ptr) (i32.const 0))))))
+        (return (call $pack (local.get $ptr) (local.get $len)))))
+    unreachable)
+  (func (export "horizon_hook") (param $id i32) (result i64)
+    (local $f i32) (local $result i64)
+    (local.set $f (call $frame (global.get $depth)))
+    (global.set $depth (i32.add (global.get $depth) (i32.const 1)))
+    (local.set $result (call $dispatch (local.get $id)
+      (i32.load (local.get $f)) (i32.load offset=8 (local.get $f))))
+    (global.set $depth (i32.sub (global.get $depth) (i32.const 1)))
+    (local.get $result)))

@@ -1,0 +1,8 @@
+id = "nofog"
+name = "nofog"
+version = "1.0.0"
+description = "Remove the fog in water, lava and powder snow."
+authors = []
+api = "0.2"
+side = "client"
+capabilities = ["registries"]
