@@ -1,5 +1,5 @@
-id = "nofog"
-name = "nofog"
+id = "NoFog"
+name = "NoFog"
 version = "1.0.0"
 description = "Remove the fog in water, lava and powder snow."
 authors = []
