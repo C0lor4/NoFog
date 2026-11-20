@@ -1,6 +1,6 @@
 [package]
 name = "NoFog"
-version = "1.0.0"
+version = "1.0.1"
 edition = "2024"
 publish = false
 
@@ -8,4 +8,4 @@ publish = false
 horizon-mod-api = { path = ".horizon/sdk/api/crates/horizon-mod-api" }
 
 [package.metadata.horizon]
-sdk = "6d765e0ea3207d5dddeee87b0c64e09222767993"
+sdk = "f00125f61f794aaa3d4e950d301f353b35b6ee3d"
